@@ -18,19 +18,16 @@ from langchain_neo4j import Neo4jGraph
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Configuration
 OLLAMA_HOST = "http://192.168.100.3:11434"
 PDF_PATH = r"C:\Users\SD-LORENZO-PC\pyproject\rndML\fineTuning\rnd\com.pdf"
+OLLAMA_MODEL = "llama3.2:latest"
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Initialize FastAPI app
 app = FastAPI(title="Neo4j RAG Chat API", 
               description="API for chatting with documents stored in Neo4j using RAG",
               version="1.0.0")
 
-# Add CORS middleware to allow cross-origin requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows all origins
@@ -39,19 +36,16 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-# Neo4j connection
 graph = Neo4jGraph(
     url="bolt://localhost:7687",
     username="neo4j",
     password="admin.admin"
 )
 
-# Global variable to store the vector retriever
 vector_retriever = None
 initialization_complete = False
 initialization_error = None
 
-# Pydantic models for API requests and responses
 class ChatRequest(BaseModel):
     question: str
     conversation_id: Optional[str] = None
@@ -72,19 +66,15 @@ class StatusResponse(BaseModel):
     initialized: bool
 
 def load_pdf(file_path):
-    """Load and split a PDF document."""
     logging.info(f"Loading PDF from: {file_path}")
     try:
-        # Load the PDF
         loader = PyPDFLoader(file_path)
         documents = loader.load()
         
-        # Get total pages and content size for logging
         total_pages = len(documents)
         total_content = sum(len(doc.page_content) for doc in documents)
         logging.info(f"Loaded PDF with {total_pages} pages and {total_content} characters")
         
-        # Split documents into chunks for better processing
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200,
@@ -99,13 +89,11 @@ def load_pdf(file_path):
         raise
 
 def ingestion(documents):
-    """Process documents and ingest into Neo4j and vector store."""
     logging.info(f"Starting ingestion process for {len(documents)} documents")
     
     llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_HOST, temperature=0)
     llm_transformer_filtered = LLMGraphTransformer(llm=llm)
     
-    # Process in batches to avoid overloading the LLM
     batch_size = 5
     for i in range(0, len(documents), batch_size):
         batch = documents[i:i+batch_size]
@@ -125,7 +113,6 @@ def ingestion(documents):
     
     logging.info("All documents successfully added to the graph")
     
-    # Create vector embeddings
     embed = OllamaEmbeddings(model="mxbai-embed-large", base_url=OLLAMA_HOST)
     
     try:
@@ -146,10 +133,8 @@ def ingestion(documents):
         raise
 
 def querying_neo4j(question):
-    """Extract entities from question and query Neo4j graph database."""
     logging.info(f"Querying Neo4j with question: {question}")
     
-    # Extract entities with a simple approach
     prompt = ChatPromptTemplate.from_messages([ 
         ("system", """Extract all person and organization entities from the text.
         Return them as a list like this: ["Entity1", "Entity2", ...].
@@ -160,20 +145,15 @@ def querying_neo4j(question):
     llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_HOST, temperature=0)
     
     try:
-        # Get raw response
         response = prompt.invoke({"question": question}) | llm
         response_text = response.content
         
-        # Basic parsing - find entities in the response
         entities_match = re.search(r'\[(.*?)\]', response_text)
         
         if entities_match:
-            # Extract the content inside brackets and split by commas
             entities_str = entities_match.group(1)
-            # Split by comma and clean up quotes and spaces
             entities = [e.strip().strip('"\'') for e in entities_str.split(',')]
         else:
-            # Fallback: try to find names by looking for capitalized words
             words = response_text.split()
             entities = []
             for i in range(len(words)):
@@ -183,7 +163,6 @@ def querying_neo4j(question):
                     else:
                         entities.append(words[i])
             
-            # Remove duplicates and filter out common words
             entities = list(set(entities))
             
         logging.info(f"Extracted entities: {entities}")
@@ -192,7 +171,6 @@ def querying_neo4j(question):
         logging.error(f"Error extracting entities: {e}")
         entities = []
         
-        # Try to extract entities from the question as fallback
         words = question.split()
         for i in range(len(words)):
             if words[i][0].isupper() and words[i].lower() not in ["i", "the", "a", "an", "who", "what", "where", "when", "why", "how"]:
@@ -201,12 +179,10 @@ def querying_neo4j(question):
                 else:
                     entities.append(words[i])
     
-    # Query the Neo4j database for each entity
     result = ""
     found_entities = []
     
     for entity in entities:
-        # Try both exact and fuzzy matches
         query_response = graph.query(
             """MATCH (p)-[r]->(e)
             WHERE p.id = $entity OR p.name = $entity OR p.id CONTAINS $entity OR p.name CONTAINS $entity
@@ -223,7 +199,6 @@ def querying_neo4j(question):
     
     if not result:
         logging.warning(f"No relationships found for entities: {entities}")
-        # Get some sample nodes as fallback
         try:
             sample_nodes = graph.query(
                 """MATCH (p)-[r]->(e)
@@ -239,11 +214,9 @@ def querying_neo4j(question):
     return result, found_entities
 
 def full_retriever(question: str, retriever):
-    """Combine graph and vector results for context."""
     graph_data, found_entities = querying_neo4j(question)
     logging.info(f"Graph Data: {graph_data}")
     
-    # Get vector results
     vector_results = retriever.invoke(question)
     vector_data = [el.page_content for el in vector_results]
     vector_text = "\n#Document ".join(vector_data) if vector_data else "No relevant documents found."
@@ -253,7 +226,6 @@ def full_retriever(question: str, retriever):
     return f"Graph data: {graph_data}\nVector data: {vector_text}", sources
 
 def chat_with_rag(question, retriever):
-    """Generate answer using combined context."""
     logging.info(f"Processing chat question: {question}")
     start_time = time.time()
     

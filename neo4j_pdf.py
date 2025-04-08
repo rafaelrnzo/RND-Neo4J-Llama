@@ -16,9 +16,9 @@ from langchain_neo4j import Neo4jGraph
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-OLLAMA_HOST = "http://192.168.100.3:11434"
+OLLAMA_HOST = "localhost:11434"
 OLLAMA_MODEL = "llama3.2:latest"
-PDF_PATH = r"C:\Users\SD-LORENZO-PC\pyproject\rndML\fineTuning\rnd\com.pdf"
+PDF_PATH = r"C:\Users\SD-LORENZO-PC\pyproject\rndML\fineTuning\com.pdf"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 

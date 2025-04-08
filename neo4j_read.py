@@ -15,10 +15,8 @@ OLLAMA_MODEL = "llama3.2:latest"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def setup_connection():
-    """Setup connection to Neo4j and return graph and vector retriever"""
     logging.info("Connecting to Neo4j")
     
-    # Connect to Neo4j graph
     graph = Neo4jGraph(
         url="bolt://localhost:7687",
         username="neo4j",
@@ -26,7 +24,6 @@ def setup_connection():
     )
     logging.info("Connected to Neo4j successfully")
     
-    # Setup vector retriever from existing graph
     try:
         embed = OllamaEmbeddings(model="mxbai-embed-large", base_url=OLLAMA_HOST)
         vector_index = Neo4jVector.from_existing_graph(
@@ -47,10 +44,6 @@ def setup_connection():
         return graph, None
 
 def extract_entities(question):
-    """Extract entities from the question using LLM"""
-    logging.info(f"Extracting entities from question: {question}")
-    
-    # Fallback extraction without LLM in case of errors
     words = question.split()
     entities = []
     for i in range(len(words)):
@@ -61,7 +54,6 @@ def extract_entities(question):
                 entities.append(words[i])
     
     if not entities:
-        # If no capitalized entities found, include key nouns
         for word in words:
             if word not in ["is", "am", "are", "was", "were", "be", "being", "been", 
                            "do", "does", "did", "will", "would", "shall", "should",
@@ -71,11 +63,9 @@ def extract_entities(question):
                            "after", "above", "below", "to", "from", "up", "down", "of"]:
                 entities.append(word)
     
-    logging.info(f"Extracted entities: {entities}")
     return entities
 
 def querying_neo4j(graph, question):
-    """Query Neo4j graph database with extracted entities from the question"""
     logging.info(f"Querying Neo4j with question: {question}")
     
     entities = extract_entities(question)
@@ -115,7 +105,6 @@ def querying_neo4j(graph, question):
     return result
 
 def get_vector_data(vector_retriever, question):
-    """Get relevant vector data from Neo4j"""
     if vector_retriever:
         try:
             vector_results = vector_retriever.invoke(question)
@@ -129,13 +118,10 @@ def get_vector_data(vector_retriever, question):
         return "Vector retriever not available."
 
 def answer_question(graph, vector_retriever, question):
-    """Generate answer to question based on Neo4j data"""
     try:
-        # Get data from Neo4j graph
         graph_data = querying_neo4j(graph, question)
         logging.info(f"Graph Data retrieved")
         
-        # Try to get vector data if available
         try:
             if vector_retriever:
                 vector_data = get_vector_data(vector_retriever, question)
@@ -148,7 +134,6 @@ def answer_question(graph, vector_retriever, question):
         
         context = f"Graph data: {graph_data}\nVector data: {vector_data}"
         
-        # Try to use LLaMA for answering
         try:
             template = """Answer the question based only on the following context:
             {context}
@@ -163,7 +148,6 @@ def answer_question(graph, vector_retriever, question):
             chain = prompt | llm | StrOutputParser()
             
             response = chain.invoke({"context": context, "question": question})
-            logging.info(f"Final Answer generated with LLM")
             
         except Exception as e:
             logging.error(f"Error generating answer with LLM: {e}")
@@ -176,9 +160,6 @@ def answer_question(graph, vector_retriever, question):
         return f"An error occurred while processing your question: {str(e)}"
 
 def main():
-    logging.info("Starting Neo4j query interface")
-    
-    # Setup connection to Neo4j
     try:
         graph, vector_retriever = setup_connection()
         
